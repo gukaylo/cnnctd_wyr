@@ -65,7 +65,7 @@ def parse_questions_raw(raw: str) -> list[tuple[str, str]]:
 def load_questions() -> list[tuple[str, str]]:
     try:
         raw = QUESTIONS_FILE.read_text(encoding="utf-8")
-    except FileNotFoundError as exc:  # pragma: no cover - critical config
+    except FileNotFoundError as exc:
         raise RuntimeError("Файл questions.18 не найден рядом с main.py") from exc
     return parse_questions_raw(raw)
 
@@ -110,13 +110,19 @@ def format_user_name(user: Message.from_user.__class__):  # type: ignore[attr-de
     return f"{sanitized} (id:{user.id})"
 
 
-def build_question_text(question_a: str, question_b: str, voters: list[str]) -> str:
+def build_question_text(
+    question_a: str,
+    question_b: str,
+    voters: list[str],
+    countdown: int | None = None,
+) -> str:
     if voters:
         voters_block = f"{len(voters)} {pluralize_participants(len(voters))}: " + ", ".join(voters)
     else:
         voters_block = "пока никто не проголосовал"
+    countdown_text = f"⚠️ Осталось {countdown} секунд!\n\n" if countdown is not None else ""
     return (
-        "[18+] Would you rather…\n\n"
+        f"{countdown_text}[18+] Would you rather…\n\n"
         f"🔵 {question_a}\n"
         f"🔴 {question_b}\n\n"
         f"👥 Уже проголосовали — {voters_block}"
@@ -207,35 +213,50 @@ def format_results(round_data: ActiveRound) -> str:
     for _, (choice, display_name) in round_data.votes.items():
         grouped.setdefault(choice, []).append(display_name)
 
+    total_votes = sum(len(v) for v in grouped.values()) or 1  # prevent division by zero
+
     def format_block(choice: str) -> str:
         voters = grouped.get(choice, [])
         count = len(voters)
+        percent = round(count / total_votes * 100)
         names = ", ".join(voters) if voters else "никто"
         color = "🔵" if choice == CHOICE_A else "🔴"
         plural = pluralize_votes(count)
-        return (
-            f"{color} {choice_to_text[choice]}\n"
-            f"   Всего {count} {plural}\n"
-            f"   Участники: {names}"
-        )
+        return f"{color} {choice_to_text[choice]} — {percent}% ({count} {plural})\n   Участники: {names}"
 
-    return "Итоги раунда:\n\n" + "\n\n".join(
-        [format_block(CHOICE_A), format_block(CHOICE_B)]
-    )
+    return "Итоги раунда:\n\n" + "\n\n".join([format_block(CHOICE_A), format_block(CHOICE_B)])
 
 
-async def conclude_round_later(chat_id: int, message_id: int, delay_seconds: int) -> None:
-    await asyncio.sleep(delay_seconds)
-    async with get_chat_lock(chat_id):
-        round_data = active_rounds.pop(get_round_key(chat_id, message_id), None)
-    if not round_data:
-        return
-
+async def countdown_timer(round_data: ActiveRound, duration: int = 20) -> None:
+    chat_id = round_data.chat_id
+    message_id = round_data.message_id
     try:
-        text = format_results(round_data)
-        await bot.send_message(chat_id, text)
-    except Exception as exc:  # pragma: no cover - logging safeguard
-        logging.exception("Failed to send round results: %s", exc)
+        for remaining in range(duration, 0, -1):
+            await asyncio.sleep(1)
+            async with get_chat_lock(chat_id):
+                if message_id not in [m.message_id for m in active_rounds.values()]:
+                    return  # Round ended early
+                await bot.edit_message_text(
+                    build_question_text(
+                        round_data.question_a,
+                        round_data.question_b,
+                        get_voter_names(round_data),
+                        countdown=remaining,
+                    ),
+                    chat_id,
+                    message_id,
+                    reply_markup=build_keyboard(),
+                )
+        # После окончания таймера — выводим результат и удаляем кнопки
+        async with get_chat_lock(chat_id):
+            active_rounds.pop(get_round_key(chat_id, message_id), None)
+            await bot.edit_message_text(
+                format_results(round_data),
+                chat_id,
+                message_id,
+            )
+    except TelegramBadRequest:
+        logging.warning("Не удалось обновить сообщение таймера")
 
 
 @dp.message(CommandStart())
@@ -284,31 +305,24 @@ async def handle_vote(callback: CallbackQuery) -> None:
             await callback.answer("Вы уже выбрали этот вариант.")
             return
 
-        # Пользователь может обновить свой голос — храним последнее решение.
         round_data.votes[user.id] = new_record
         feedback = "Голос обновлён." if previous else "Голос засчитан!"
         await callback.answer(feedback)
 
-        try:
-            await callback.message.edit_text(
-                build_question_text(
-                    round_data.question_a,
-                    round_data.question_b,
-                    get_voter_names(round_data),
-                ),
-                reply_markup=build_keyboard(),
-            )
-        except TelegramBadRequest as exc:  # pragma: no cover - log visual issues
-            logging.warning("Не удалось обновить текст сообщения: %s", exc)
+        # Обновляем текст после каждого голоса
+        await callback.message.edit_text(
+            build_question_text(
+                round_data.question_a,
+                round_data.question_b,
+                get_voter_names(round_data),
+            ),
+            reply_markup=build_keyboard(),
+        )
 
+        # Запускаем таймер, если голосов >=2 и таймер ещё не стартовал
         if len(round_data.votes) >= 2 and not round_data.timer_started:
             round_data.timer_started = True
-            round_data.timer_task = asyncio.create_task(
-                conclude_round_later(chat_id, callback.message.message_id, 15)
-            )
-            await callback.message.reply(
-                "Принято достаточно ответов, у вас есть ещё 15 секунд, чтобы проголосовать!"
-            )
+            round_data.timer_task = asyncio.create_task(countdown_timer(round_data))
 
 
 def main() -> None:
