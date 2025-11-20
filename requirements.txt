@@ -1,3 +1,6 @@
 aiogram==3.13.1
 python-dotenv==1.0.1
+# Явно указываем версии с предкомпилированными wheels
+aiohttp>=3.9.0
+pydantic>=2.5.0
 
