@@ -288,16 +288,33 @@ async def handle_inline_question(message: Message) -> None:
         await message.answer(
             "Добавь меня в группу, чтобы использовать вопросы 18+"
         )
+        try:
+            await message.delete()
+        except Exception:
+            pass
         return
     
-    # Удаляем служебное сообщение
+    # Удаляем служебное сообщение перед созданием раунда
     try:
         await message.delete()
     except Exception:
         pass
     
     # Создаем новый раунд с случайным вопросом
-    await start_new_round(message)
+    # Используем chat_id напрямую, так как сообщение уже удалено
+    chat_id = message.chat.id
+    async with get_chat_lock(chat_id):
+        question_index, question_a, question_b = pick_question(chat_id)
+        text = build_question_text(question_a, question_b, [])
+        sent = await bot.send_message(chat_id, text, reply_markup=build_keyboard())
+        round_data = ActiveRound(
+            chat_id=chat_id,
+            message_id=sent.message_id,
+            question_index=question_index,
+            question_a=question_a,
+            question_b=question_b,
+        )
+        active_rounds[get_round_key(chat_id, sent.message_id)] = round_data
 
 @dp.callback_query(F.data.startswith("vote:"))
 async def handle_vote(callback: CallbackQuery) -> None:
