@@ -213,7 +213,7 @@ def format_results(round_data: ActiveRound) -> str:
     for _, (choice, display_name) in round_data.votes.items():
         grouped.setdefault(choice, []).append(display_name)
 
-    total_votes = sum(len(v) for v in grouped.values()) or 1  # prevent division by zero
+    total_votes = sum(len(v) for v in grouped.values()) or 1
 
     def format_block(choice: str) -> str:
         voters = grouped.get(choice, [])
@@ -234,8 +234,9 @@ async def countdown_timer(round_data: ActiveRound, duration: int = 20) -> None:
         for remaining in range(duration, 0, -1):
             await asyncio.sleep(1)
             async with get_chat_lock(chat_id):
-                if message_id not in [m.message_id for m in active_rounds.values()]:
-                    return  # Round ended early
+                # Проверяем, есть ли раунд активный
+                if get_round_key(chat_id, message_id) not in active_rounds:
+                    return
                 await bot.edit_message_text(
                     build_question_text(
                         round_data.question_a,
@@ -247,7 +248,7 @@ async def countdown_timer(round_data: ActiveRound, duration: int = 20) -> None:
                     message_id,
                     reply_markup=build_keyboard(),
                 )
-        # После окончания таймера — выводим результат и удаляем кнопки
+        # Таймер завершён, показываем финальные результаты
         async with get_chat_lock(chat_id):
             active_rounds.pop(get_round_key(chat_id, message_id), None)
             await bot.edit_message_text(
