@@ -17,6 +17,9 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InlineQuery,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
     Message,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -165,14 +168,17 @@ def pick_question(chat_id: int) -> tuple[int, str, str]:
     question_a, question_b = QUESTIONS[question_index]
     return question_index, question_a, question_b
 
-async def start_new_round(message: Message) -> None:
+async def start_new_round(message: Message, chat_id: int | None = None) -> None:
+    """Запускает новый раунд голосования."""
+    if chat_id is None:
+        chat_id = message.chat.id
+    
     if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
         await message.answer(
             "Добавь меня в группу, выдай право отправлять сообщения и используй /would_you_rather."
         )
         return
 
-    chat_id = message.chat.id
     async with get_chat_lock(chat_id):
         question_index, question_a, question_b = pick_question(chat_id)
         text = build_question_text(question_a, question_b, [])
@@ -243,6 +249,54 @@ async def handle_start(message: Message) -> None:
 
 @dp.message(Command(commands=["would_you_rather", "wyr", "18"]))
 async def handle_command(message: Message) -> None:
+    await start_new_round(message)
+
+@dp.inline_query()
+async def inline_query_handler(query: InlineQuery) -> None:
+    """Обработчик inline-запросов. Показывает карточку для запуска вопроса."""
+    # Выбираем случайный вопрос для превью в описании
+    preview_index = random.randint(0, len(QUESTIONS) - 1)
+    preview_a, preview_b = QUESTIONS[preview_index]
+    
+    # Обрезаем текст для описания, если слишком длинный
+    max_len = 30
+    desc_a = (preview_a[:max_len] + "...") if len(preview_a) > max_len else preview_a
+    desc_b = (preview_b[:max_len] + "...") if len(preview_b) > max_len else preview_b
+    
+    # Создаем красивую карточку
+    # Используем специальный маркер, который бот распознает и обработает
+    results = [
+        InlineQueryResultArticle(
+            id="wyr_18_question",
+            title="🔞 Задать вопрос 18+",
+            description=f"{desc_a} / {desc_b}",
+            thumb_url="https://via.placeholder.com/100x100/8B0000/FFFFFF?text=18%2B",
+            input_message_content=InputTextMessageContent(
+                message_text="🔞 /wyr_inline_start",
+                parse_mode=None
+            )
+        )
+    ]
+    
+    await query.answer(results, cache_time=10)
+
+@dp.message(F.text == "🔞 /wyr_inline_start")
+async def handle_inline_question(message: Message) -> None:
+    """Обрабатывает вопрос, отправленный через inline-запрос."""
+    # Проверяем, что это группа
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        await message.answer(
+            "Добавь меня в группу, чтобы использовать вопросы 18+"
+        )
+        return
+    
+    # Удаляем служебное сообщение
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    
+    # Создаем новый раунд с случайным вопросом
     await start_new_round(message)
 
 @dp.callback_query(F.data.startswith("vote:"))
