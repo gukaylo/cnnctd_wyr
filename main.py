@@ -254,23 +254,13 @@ async def handle_command(message: Message) -> None:
 @dp.inline_query()
 async def inline_query_handler(query: InlineQuery) -> None:
     """Обработчик inline-запросов. Показывает карточку для запуска вопроса."""
-    # Выбираем случайный вопрос для превью в описании
-    preview_index = random.randint(0, len(QUESTIONS) - 1)
-    preview_a, preview_b = QUESTIONS[preview_index]
-    
-    # Обрезаем текст для описания, если слишком длинный
-    max_len = 30
-    desc_a = (preview_a[:max_len] + "...") if len(preview_a) > max_len else preview_a
-    desc_b = (preview_b[:max_len] + "...") if len(preview_b) > max_len else preview_b
-    
-    # Создаем красивую карточку
-    # Используем специальный маркер, который бот распознает и обработает
+    # Создаем карточку без описания, только с иконкой и заголовком
     results = [
         InlineQueryResultArticle(
             id="wyr_18_question",
             title="🔞 Задать вопрос 18+",
-            description=f"{desc_a} / {desc_b}",
-            thumb_url="https://via.placeholder.com/100x100/8B0000/FFFFFF?text=18%2B",
+            description="",  # Пустое описание
+            thumb_url="https://via.placeholder.com/100x100/000000/000000",  # Черный квадрат
             input_message_content=InputTextMessageContent(
                 message_text="🔞 /wyr_inline_start",
                 parse_mode=None
