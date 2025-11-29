@@ -112,7 +112,7 @@ def build_question_text(question_a: str, question_b: str, voters: list[str], sho
     else:
         voters_block = "пока никто не проголосовал"
     return (
-        f"{timer_text}[18+] Would you rather…\n\n"
+        f"{timer_text} Would you rather…\n\n"
         f"🔵 {question_a}\n"
         f"🔴 {question_b}\n\n"
         f"👥 Уже проголосовали — {voters_block}"
@@ -241,13 +241,13 @@ async def conclude_round_later(chat_id: int, message_id: int, delay_seconds: int
 async def handle_start(message: Message) -> None:
     if message.chat.type == ChatType.PRIVATE:
         await message.answer(
-            "Я играю в 18+ Would you rather… Добавь меня в группу, дай право писать сообщения "
-            "и используй команду /would_you_rather (или /wyr, /18), чтобы запустить раунд."
+            "Я играю в Would you rather… Добавь меня в группу, дай право писать сообщения "
+            "и используй команду /would_you_rather (или /wyr), чтобы запустить раунд."
         )
     else:
         await message.reply("Я готов к раунду! Используй /would_you_rather, /wyr или /18.")
 
-@dp.message(Command(commands=["would_you_rather", "wyr", "18"]))
+@dp.message(Command(commands=["would_you_rather", "wyr"]))
 async def handle_command(message: Message) -> None:
     await start_new_round(message)
 
@@ -276,7 +276,7 @@ async def handle_inline_question(message: Message) -> None:
     # Проверяем, что это группа
     if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
         await message.answer(
-            "Добавь меня в группу, чтобы использовать вопросы 18+"
+            "Добавь меня в группу, чтобы использовать вопросы"
         )
         try:
             await message.delete()
